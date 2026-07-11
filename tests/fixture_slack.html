@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>fake slack — virtualized message list fixture</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  [data-qa="message_pane"] { height: 600px; position: relative; }
+  .scroller { height: 600px; overflow-y: auto; position: relative; }
+  .canvas { position: relative; }
+  [data-qa="virtual-list-item"] { position: absolute; left: 0; right: 0; height: 40px; box-sizing: border-box; }
+  [data-qa="threads_flexpane"] { position: fixed; right: 0; top: 0; width: 400px; height: 600px; background: #eee; }
+  [data-qa="threads_flexpane"] .scroller { height: 600px; }
+  [data-qa="reply_bar_count"] { color: blue; cursor: pointer; }
+</style>
+</head>
+<body>
+<div data-qa="channel_name">#fixture-channel</div>
+<div data-qa="message_pane">
+  <div class="scroller" id="main-scroller"><div class="canvas" id="main-canvas"></div></div>
+</div>
+
+<script>
+// ---- synthetic data ---------------------------------------------------------
+const N = 300;
+const BASE_TS = 1720000000;
+const AUTHORS = ["alice", "bob", "carol"];
+const THREAD_PARENTS = { 50: 3, 150: 3 };   // index -> reply count
+
+const MESSAGES = [];
+for (let i = 0; i < N; i++) {
+  MESSAGES.push({
+    ts: (BASE_TS + i * 60).toFixed(6),
+    author: AUTHORS[Math.floor(i / 3) % AUTHORS.length],
+    showSender: i % 3 === 0,                 // slack renders sender on first of a group
+    text: "message #" + i + " body",
+    edited: i % 37 === 0 && i > 0,
+    replies: THREAD_PARENTS[i] || 0,
+    idx: i,
+  });
+}
+const THREADS = {};
+for (const [idx, count] of Object.entries(THREAD_PARENTS)) {
+  const parent = MESSAGES[idx];
+  THREADS[parent.ts] = [];
+  for (let j = 1; j <= count; j++) {
+    THREADS[parent.ts].push({
+      ts: (parseFloat(parent.ts) + j * 0.1).toFixed(6),
+      author: AUTHORS[j % AUTHORS.length], showSender: true,
+      text: "reply " + j + " to #" + idx, edited: false, replies: 0,
+    });
+  }
+}
+
+// ---- virtualized renderer ---------------------------------------------------
+const ROW = 40, BUFFER = 5;
+
+function messageHtml(m) {
+  return (m.showSender ? '<button data-qa="message_sender_name">' + m.author + "</button> " : "")
+    + '<a data-ts="' + m.ts + '" href="#">ts</a> '
+    + '<span data-qa="message-text">' + m.text + "</span>"
+    + (m.edited ? ' <span data-qa="message_edited_label">(edited)</span>' : "")
+    + (m.replies ? ' <span data-qa="reply_bar_count" data-parent="' + m.ts + '">'
+                 + m.replies + " replies</span>" : "");
+}
+
+function render(scroller, canvas, msgs) {
+  canvas.style.height = (msgs.length * ROW) + "px";
+  const first = Math.max(0, Math.floor(scroller.scrollTop / ROW) - BUFFER);
+  const last = Math.min(msgs.length - 1,
+                        Math.ceil((scroller.scrollTop + scroller.clientHeight) / ROW) + BUFFER);
+  canvas.innerHTML = "";  // recycle everything, like slack does
+  for (let i = first; i <= last; i++) {
+    const div = document.createElement("div");
+    div.setAttribute("data-qa", "virtual-list-item");
+    div.setAttribute("data-item-key", msgs[i].ts);
+    div.style.top = (i * ROW) + "px";
+    div.innerHTML = messageHtml(msgs[i]);
+    canvas.appendChild(div);
+  }
+}
+
+function attach(scroller, canvas, msgs) {
+  let pending = null;
+  scroller.addEventListener("scroll", () => {   // hydration latency: rows appear ~60ms after scroll
+    clearTimeout(pending);
+    pending = setTimeout(() => render(scroller, canvas, msgs), 60);
+  });
+  render(scroller, canvas, msgs);
+}
+
+const mainScroller = document.getElementById("main-scroller");
+attach(mainScroller, document.getElementById("main-canvas"), MESSAGES);
+mainScroller.scrollTop = mainScroller.scrollHeight;   // slack opens at the newest message
+render(mainScroller, document.getElementById("main-canvas"), MESSAGES);
+
+// ---- thread flexpane --------------------------------------------------------
+document.addEventListener("click", (ev) => {
+  const bar = ev.target.closest('[data-qa="reply_bar_count"]');
+  if (!bar) return;
+  openThread(bar.getAttribute("data-parent"));
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    const pane = document.querySelector('[data-qa="threads_flexpane"]');
+    if (pane) pane.remove();
+  }
+});
+
+function openThread(parentTs) {
+  const existing = document.querySelector('[data-qa="threads_flexpane"]');
+  if (existing) existing.remove();
+  const pane = document.createElement("div");
+  pane.setAttribute("data-qa", "threads_flexpane");
+  pane.innerHTML = '<div class="scroller"><div class="canvas"></div></div>';
+  document.body.appendChild(pane);
+  const parent = MESSAGES.find(m => m.ts === parentTs);
+  const msgs = [Object.assign({}, parent, { replies: 0 })].concat(THREADS[parentTs] || []);
+  setTimeout(() => {  // pane content hydrates asynchronously, like the real thing
+    attach(pane.querySelector(".scroller"), pane.querySelector(".canvas"), msgs);
+  }, 80);
+}
+</script>
+</body>
+</html>
