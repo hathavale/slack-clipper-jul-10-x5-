@@ -8,7 +8,9 @@ files are written.
 from __future__ import annotations
 
 import os
+import tempfile
 import time
+from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
@@ -69,7 +71,13 @@ def create_app(cdp_url: str | None = None, profile_dir: str | None = None,
                 return jsonify(error="'last N days' must be a positive number"), 400
             since = time.time() - days * 86400
 
-        out_dir = os.path.expanduser((data.get("out_dir") or "captures").strip() or "captures")
+        if data.get("client_save"):
+            # browser-picked folder (File System Access API): its real path is
+            # never exposed to the page, so the server writes to a temp dir and
+            # the browser copies the finished files into the picked folder
+            out_dir = tempfile.mkdtemp(prefix="slack_clipper_")
+        else:
+            out_dir = os.path.expanduser((data.get("out_dir") or "captures").strip() or "captures")
 
         if not chrome.is_running(cdp):
             return jsonify(error="the debug Chrome is not running — launch it first"), 409
@@ -88,5 +96,17 @@ def create_app(cdp_url: str | None = None, profile_dir: str | None = None,
         if job is None:
             return jsonify(error="unknown job"), 404
         return jsonify(job)
+
+    @app.get("/api/jobs/<job_id>/files")
+    def job_files(job_id: str):
+        """Transcript contents for browser-side saving into a picked folder."""
+        job = jobs.get(job_id)
+        if job is None:
+            return jsonify(error="unknown job"), 404
+        if job["state"] != "done":
+            return jsonify(error="job is not finished"), 409
+        files = [{"name": Path(p).name, "content": Path(p).read_text(encoding="utf-8")}
+                 for p in job["files"]]
+        return jsonify(files=files)
 
     return app

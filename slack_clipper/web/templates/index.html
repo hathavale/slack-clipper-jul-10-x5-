@@ -43,6 +43,13 @@
   .files { font-family:ui-monospace, monospace; font-size:.8rem; word-break:break-all;
            color:var(--muted); margin-top:.5rem; }
   .ok { color:var(--ok); font-weight:600; } .err { color:var(--err); white-space:pre-wrap; }
+  .dirrow { display:flex; gap:.5rem; }
+  .dirrow input { flex:1; }
+  .chip { display:flex; align-items:center; gap:.6rem; margin-top:.4rem; font-size:.85rem;
+          background:var(--bg); border:1px solid var(--line); border-radius:7px;
+          padding:.3rem .6rem; width:fit-content; }
+  .chip button { background:none; border:0; color:var(--muted); padding:0 .2rem;
+                 font-size:1rem; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -68,7 +75,14 @@
     <input type="number" id="days" min="1" step="1" placeholder="15">
 
     <label>Target directory <span class="hint">— where transcript files are written</span></label>
-    <input type="text" id="outdir" placeholder="~/SlackClips" value="~/SlackClips">
+    <div class="dirrow">
+      <input type="text" id="outdir" placeholder="~/SlackClips" value="~/SlackClips">
+      <button class="secondary" id="browse-btn" type="button" hidden>Browse…</button>
+    </div>
+    <div class="chip" id="dir-chip" hidden>
+      <span>📁 Saving to <b id="dir-name"></b> (picked in browser)</span>
+      <button type="button" id="dir-clear" title="Use the typed path instead">✕</button>
+    </div>
 
     <div class="check"><input type="checkbox" id="threads" checked>
       <label for="threads" style="margin:0; font-weight:400">Include thread replies</label></div>
@@ -96,6 +110,37 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let polling = null;
+let dirHandle = null;   // File System Access API directory handle, if picked
+
+// the API needs a secure context (localhost qualifies) and Chrome/Edge;
+// Safari/Firefox fall back to the typed-path field
+if (window.showDirectoryPicker) $("browse-btn").hidden = false;
+
+$("browse-btn").onclick = async () => {
+  try {
+    dirHandle = await window.showDirectoryPicker({mode: "readwrite"});
+    $("dir-name").textContent = dirHandle.name;
+    $("dir-chip").hidden = false;
+    $("outdir").disabled = true;
+  } catch (e) { /* user cancelled the picker */ }
+};
+
+$("dir-clear").onclick = () => {
+  dirHandle = null;
+  $("dir-chip").hidden = true;
+  $("outdir").disabled = false;
+};
+
+async function saveToPickedDir(jobId) {
+  const body = await api("/api/jobs/" + jobId + "/files");
+  for (const f of body.files) {
+    const fh = await dirHandle.getFileHandle(f.name, {create: true});
+    const w = await fh.createWritable();
+    await w.write(f.content);
+    await w.close();
+  }
+  return body.files.map(f => dirHandle.name + "/" + f.name);
+}
 
 async function api(path, opts) {
   const resp = await fetch(path, opts);
@@ -139,6 +184,7 @@ $("start-btn").onclick = async () => {
         link: $("link").value.trim(),
         last_days: $("days").value.trim(),
         out_dir: $("outdir").value.trim(),
+        client_save: !!dirHandle,
         threads: $("threads").checked,
       })});
     poll(r.job_id);
@@ -155,11 +201,16 @@ function poll(jobId) {
       $("p-detail").textContent = j.detail || "";
       if (j.state === "done") {
         clearInterval(polling);
+        let files = j.files;
+        if (dirHandle) {
+          $("p-state").textContent = "saving into " + dirHandle.name + "…";
+          files = await saveToPickedDir(jobId);
+        }
         $("p-running").style.display = "none";
         $("p-done").style.display = "block";
         $("d-count").textContent = j.messages;
         $("d-threads").textContent = j.thread_replies ? " + " + j.thread_replies + " thread replies" : "";
-        $("d-files").innerHTML = j.files.map(f => f.replace(/&/g,"&amp;").replace(/</g,"&lt;")).join("<br>");
+        $("d-files").innerHTML = files.map(f => f.replace(/&/g,"&amp;").replace(/</g,"&lt;")).join("<br>");
         $("start-btn").disabled = false;
       } else if (j.state === "error") {
         clearInterval(polling);

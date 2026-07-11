@@ -8,6 +8,7 @@ and captures the virtualized-Slack fixture via the HTTP API.
 import glob
 import json
 import subprocess
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -79,13 +80,40 @@ def test_e2e_capture_via_api(cdp_chrome, tmp_path):
         "link": FIXTURE.as_uri(), "out_dir": str(out_dir), "threads": False})
     assert resp.status_code == 200, resp.get_json()
 
-    job = _wait_for_job(client, resp.get_json()["job_id"])
+    job_id = resp.get_json()["job_id"]
+    job = _wait_for_job(client, job_id)
     assert job["state"] == "done", job["error"]
     assert job["messages"] == N
     json_path, md_path = job["files"]
     doc = json.loads(Path(json_path).read_text())
     assert doc["message_count"] == N
     assert "message #299 body" in Path(md_path).read_text()
+
+    # the files endpoint serves content for browser-side saving (picked folder)
+    files = client.get(f"/api/jobs/{job_id}/files").get_json()["files"]
+    assert [f["name"] for f in files] == [Path(json_path).name, Path(md_path).name]
+    assert json.loads(files[0]["content"])["message_count"] == N
+
+
+def test_e2e_client_save_writes_to_temp_dir(cdp_chrome):
+    """client_save mode: no out_dir needed; server stages files in a temp dir
+    and hands their content to the browser via the files endpoint."""
+    app = create_app(cdp_url=cdp_chrome, settle_interval=0.08)
+    client = app.test_client()
+
+    resp = client.post("/api/capture", json={
+        "link": FIXTURE.as_uri(), "client_save": True, "threads": False})
+    assert resp.status_code == 200, resp.get_json()
+    job_id = resp.get_json()["job_id"]
+
+    # not finished yet -> files endpoint refuses
+    assert client.get(f"/api/jobs/{job_id}/files").status_code == 409
+
+    job = _wait_for_job(client, job_id)
+    assert job["state"] == "done", job["error"]
+    assert all(p.startswith(tempfile.gettempdir()) for p in job["files"])
+    files = client.get(f"/api/jobs/{job_id}/files").get_json()["files"]
+    assert len(files) == 2 and "message #299 body" in files[1]["content"]
 
 
 def test_e2e_last_n_days_limits_capture(cdp_chrome, tmp_path):
@@ -126,3 +154,4 @@ def test_validation_errors():
 def test_unknown_job_is_404():
     app = create_app(cdp_url="http://localhost:1")
     assert app.test_client().get("/api/jobs/nope").status_code == 404
+    assert app.test_client().get("/api/jobs/nope/files").status_code == 404

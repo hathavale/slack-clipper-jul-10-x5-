@@ -70,7 +70,12 @@ From the page you can:
   already on screen.
 - **Last N days** — how far back to capture (empty = full history).
 - **Target directory** — where the transcript `.json` + `.md` land
-  (default `~/SlackClips`).
+  (default `~/SlackClips`). In Chrome/Edge a **Browse…** button opens a native
+  folder picker (File System Access API); the browser then writes the finished
+  transcripts straight into the picked folder. (The API never reveals a
+  folder's absolute path to a web page, so in this mode the server stages the
+  files in a temp dir and the page saves them through the picked handle. On
+  Safari/Firefox the button is hidden and the typed path is used.)
 - A live progress indicator: connecting → navigating → capturing (with a
   running message count) → done, showing the written file paths — or the error
   if something went wrong.
