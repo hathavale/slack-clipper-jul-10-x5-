@@ -79,6 +79,16 @@ From the page you can:
 - A live progress indicator: connecting → navigating → capturing (with a
   running message count) → done, showing the written file paths — or the error
   if something went wrong.
+- **A job queue** — up to 5 captures may be queued or running at once; they
+  execute one at a time (they all drive the same Chrome window). The jobs
+  table shows each row's parameters and live status, with a **Cancel** button
+  per row — enabled only while a job is still queued, since a running job
+  can't be silently removed.
+- **Abort capture** (next to Launch Chrome) — stops the *running* job when it
+  takes too long or hangs. The abort is cooperative: scrolling stops at the
+  next round, and everything captured up to that point is consolidated,
+  author-filled, and written out as a partial transcript (the row shows
+  "aborted · N msgs saved"). The next queued job then starts automatically.
 
 Flags: `--port` (default 5001 — 5000 collides with macOS AirPlay), `--host`,
 `--cdp-url`. Environment overrides: `SLACK_CLIPPER_CHROME` (path to the Chrome

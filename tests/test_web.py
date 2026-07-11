@@ -155,3 +155,95 @@ def test_unknown_job_is_404():
     app = create_app(cdp_url="http://localhost:1")
     assert app.test_client().get("/api/jobs/nope").status_code == 404
     assert app.test_client().get("/api/jobs/nope/files").status_code == 404
+    assert app.test_client().post("/api/jobs/nope/cancel").status_code == 404
+
+
+def test_abort_without_running_job_is_409():
+    app = create_app(cdp_url="http://localhost:1")
+    resp = app.test_client().post("/api/abort")
+    assert resp.status_code == 409
+    assert "no capture" in resp.get_json()["error"]
+
+
+def test_queue_limit_and_cancel_rules(monkeypatch):
+    """Queue mechanics without a browser: 5-job cap, cancel only while queued,
+    cancelled jobs are skipped by the worker."""
+    import threading
+
+    from slack_clipper.web.jobs import JobManager
+
+    release = threading.Event()
+
+    def fake_execute(self, job, **params):
+        job["state"] = "capturing"
+        release.wait(timeout=30)
+        job["state"] = "done"
+
+    monkeypatch.setattr(JobManager, "_execute", fake_execute)
+    jm = JobManager()
+
+    def enqueue():
+        return jm.start(request={}, cdp_url="x", selectors=None, link=None,
+                        since=None, out_dir="out", threads=False)
+
+    jobs = [enqueue() for _ in range(5)]
+    with pytest.raises(RuntimeError, match="full"):
+        enqueue()
+
+    deadline = time.monotonic() + 5
+    while jobs[0]["state"] != "capturing" and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert jobs[0]["state"] == "capturing"
+
+    with pytest.raises(RuntimeError, match="only queued"):
+        jm.cancel(jobs[0]["id"])          # running -> not cancellable
+    jm.cancel(jobs[2]["id"])              # queued -> cancellable
+    assert jobs[2]["state"] == "cancelled"
+    assert jm.abort() == jobs[0]["id"]    # abort targets the running job
+
+    release.set()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if all(j["state"] in ("done", "cancelled") for j in jobs):
+            break
+        time.sleep(0.05)
+    assert jobs[2]["state"] == "cancelled"
+    assert [j["state"] for i, j in enumerate(jobs) if i != 2] == ["done"] * 4
+
+    with pytest.raises(RuntimeError, match="no capture"):
+        jm.abort()                        # nothing running any more
+
+
+def test_e2e_abort_consolidates_partial_capture(cdp_chrome, tmp_path):
+    """Abort mid-scroll: the job finishes as done+aborted with a partial
+    transcript written out, and a queued job behind it is cancellable."""
+    app = create_app(cdp_url=cdp_chrome, settle_interval=0.35)  # slow scroll rounds
+    client = app.test_client()
+
+    first = client.post("/api/capture", json={
+        "link": FIXTURE.as_uri(), "out_dir": str(tmp_path), "threads": False})
+    job_id = first.get_json()["job_id"]
+    queued = client.post("/api/capture", json={
+        "link": FIXTURE.as_uri(), "out_dir": str(tmp_path), "threads": False})
+    queued_id = queued.get_json()["job_id"]
+
+    assert client.post(f"/api/jobs/{queued_id}/cancel").status_code == 200
+    assert client.get(f"/api/jobs/{queued_id}").get_json()["state"] == "cancelled"
+
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        job = client.get(f"/api/jobs/{job_id}").get_json()
+        if job["state"] == "capturing" and job["messages"] >= 30:
+            break
+        time.sleep(0.2)
+    else:
+        pytest.fail(f"job never got deep into capturing (last: {job})")
+
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 409  # running
+    assert client.post("/api/abort").status_code == 200
+
+    job = _wait_for_job(client, job_id)
+    assert job["state"] == "done" and job["aborted"] is True
+    assert 0 < job["messages"] < N, "abort should have stopped before full history"
+    doc = json.loads(Path(job["files"][0]).read_text())
+    assert doc["message_count"] == job["messages"]  # partial capture consolidated

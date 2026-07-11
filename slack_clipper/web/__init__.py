@@ -71,7 +71,8 @@ def create_app(cdp_url: str | None = None, profile_dir: str | None = None,
                 return jsonify(error="'last N days' must be a positive number"), 400
             since = time.time() - days * 86400
 
-        if data.get("client_save"):
+        client_save = bool(data.get("client_save"))
+        if client_save:
             # browser-picked folder (File System Access API): its real path is
             # never exposed to the page, so the server writes to a temp dir and
             # the browser copies the finished files into the picked folder
@@ -82,13 +83,41 @@ def create_app(cdp_url: str | None = None, profile_dir: str | None = None,
         if not chrome.is_running(cdp):
             return jsonify(error="the debug Chrome is not running — launch it first"), 409
 
+        request_summary = {
+            "link": link or "conversation on screen",
+            "days": days_raw if days_raw not in (None, "") else "all",
+            "target": "browser folder" if client_save else out_dir,
+            "threads": bool(data.get("threads", True)),
+            "client_save": client_save,
+        }
         try:
-            job = jobs.start(cdp_url=cdp, selectors=selectors, link=link, since=since,
-                             out_dir=out_dir, threads=bool(data.get("threads", True)),
+            job = jobs.start(request=request_summary, cdp_url=cdp, selectors=selectors,
+                             link=link, since=since, out_dir=out_dir,
+                             threads=bool(data.get("threads", True)),
                              settle_interval=settle_interval)
         except RuntimeError as exc:
             return jsonify(error=str(exc)), 409
         return jsonify(job_id=job["id"])
+
+    @app.get("/api/jobs")
+    def all_jobs():
+        return jsonify(jobs=jobs.list())
+
+    @app.post("/api/jobs/<job_id>/cancel")
+    def cancel_job(job_id: str):
+        try:
+            return jsonify(jobs.cancel(job_id))
+        except KeyError:
+            return jsonify(error="unknown job"), 404
+        except RuntimeError as exc:
+            return jsonify(error=str(exc)), 409
+
+    @app.post("/api/abort")
+    def abort_running():
+        try:
+            return jsonify(aborted_job=jobs.abort())
+        except RuntimeError as exc:
+            return jsonify(error=str(exc)), 409
 
     @app.get("/api/jobs/<job_id>")
     def job_status(job_id: str):

@@ -6,141 +6,164 @@
 <title>Slack Clipper</title>
 <style>
   :root { --bg:#f7f6f3; --card:#fff; --ink:#1d1c1a; --muted:#6b6963; --line:#e4e2dc;
-          --accent:#4a154b; --ok:#1a7f37; --err:#b42318; }
+          --accent:#4a154b; --ok:#1a7f37; --err:#b42318; --warn:#9a6700; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#191919; --card:#232220; --ink:#ece9e2; --muted:#a09d95; --line:#3a3835;
-            --accent:#b794b8; --ok:#4ac26b; --err:#ff8577; }
+            --accent:#b794b8; --ok:#4ac26b; --err:#ff8577; --warn:#d4a72c; }
   }
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
   body { margin:0; background:var(--bg); color:var(--ink);
          font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  main { max-width:620px; margin:3rem auto; padding:0 1rem; }
+  main { max-width:880px; margin:2.5rem auto; padding:0 1rem; }
   h1 { font-size:1.5rem; margin:0 0 .25rem; }
+  h2 { font-size:1rem; margin:0 0 .75rem; }
   .sub { color:var(--muted); margin:0 0 1.5rem; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
           padding:1.25rem 1.5rem; margin-bottom:1rem; }
-  label { display:block; font-weight:600; font-size:.85rem; margin:1rem 0 .3rem; }
-  label:first-of-type { margin-top:0; }
+  label { display:block; font-weight:600; font-size:.85rem; margin:0 0 .3rem; }
   .hint { font-weight:400; color:var(--muted); }
   input[type=text], input[type=number] { width:100%; padding:.55rem .7rem; font:inherit;
     border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); }
-  .check { display:flex; align-items:center; gap:.5rem; margin-top:1rem; font-size:.9rem; }
   button { font:inherit; font-weight:600; border:0; border-radius:7px; cursor:pointer;
            padding:.6rem 1.1rem; }
-  button:disabled { opacity:.5; cursor:default; }
-  .primary { background:var(--accent); color:#fff; width:100%; margin-top:1.25rem; }
+  button:disabled { opacity:.45; cursor:default; }
+  .primary { background:var(--accent); color:#fff; }
   .secondary { background:transparent; color:var(--accent); border:1px solid var(--accent);
                padding:.35rem .8rem; font-size:.85rem; }
+  .danger { background:transparent; color:var(--err); border:1px solid var(--err);
+            padding:.35rem .8rem; font-size:.85rem; }
   .row { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
   .dot { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; margin-right:.45rem; }
   .dot.on { background:var(--ok); } .dot.off { background:var(--err); }
-  #progress { display:none; }
+
+  /* column-based form */
+  .grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; align-items:start; }
+  .grid .span-all { grid-column:1 / -1; }
+  @media (max-width:640px) { .grid { grid-template-columns:1fr; } }
+  .check { display:flex; align-items:center; gap:.5rem; margin-top:1.9rem; font-size:.9rem; }
+  .formfoot { display:flex; justify-content:flex-end; margin-top:1.1rem; }
+
+  .dirrow { display:flex; gap:.5rem; }
+  .dirrow input { flex:1; }
+  .chip { display:flex; align-items:center; gap:.6rem; margin-top:.4rem; font-size:.8rem;
+          background:var(--bg); border:1px solid var(--line); border-radius:7px;
+          padding:.25rem .6rem; width:fit-content; }
+  .chip button { background:none; border:0; color:var(--muted); padding:0 .2rem;
+                 font-size:1rem; cursor:pointer; }
+
+  /* queue table */
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  th, td { text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:.75rem; text-transform:uppercase;
+       letter-spacing:.04em; }
+  td.trunc { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  .st { font-weight:600; }
+  .st.queued { color:var(--muted); } .st.running { color:var(--warn); }
+  .st.done { color:var(--ok); } .st.error, .st.cancelled { color:var(--err); }
+  .st.aborted { color:var(--warn); }
+  .cancel-btn { background:none; border:1px solid var(--line); color:var(--err);
+                padding:.2rem .6rem; font-size:.78rem; }
+  .empty { color:var(--muted); font-size:.85rem; }
+
   .spinner { display:inline-block; width:1rem; height:1rem; margin-right:.5rem;
              border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%;
              animation:spin .8s linear infinite; vertical-align:-.2rem; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  .bigcount { font-size:1.6rem; font-weight:700; }
-  .files { font-family:ui-monospace, monospace; font-size:.8rem; word-break:break-all;
-           color:var(--muted); margin-top:.5rem; }
+  .bigcount { font-size:1.5rem; font-weight:700; }
+  .files { font-family:ui-monospace, monospace; font-size:.78rem; word-break:break-all;
+           color:var(--muted); margin-top:.4rem; }
   .ok { color:var(--ok); font-weight:600; } .err { color:var(--err); white-space:pre-wrap; }
-  .dirrow { display:flex; gap:.5rem; }
-  .dirrow input { flex:1; }
-  .chip { display:flex; align-items:center; gap:.6rem; margin-top:.4rem; font-size:.85rem;
-          background:var(--bg); border:1px solid var(--line); border-radius:7px;
-          padding:.3rem .6rem; width:fit-content; }
-  .chip button { background:none; border:0; color:var(--muted); padding:0 .2rem;
-                 font-size:1rem; cursor:pointer; }
+  .warn { color:var(--warn); font-weight:600; }
 </style>
 </head>
 <body>
 <main>
   <h1>Slack Clipper</h1>
-  <p class="sub">Capture a coherent transcript of a Slack conversation from your own logged-in Chrome.</p>
+  <p class="sub">Capture coherent transcripts of Slack conversations from your own logged-in Chrome.</p>
 
   <div class="card">
     <div class="row">
       <div><span id="chrome-dot" class="dot off"></span><span id="chrome-label">checking Chrome…</span>
         <div class="hint" style="font-size:.8rem">debug endpoint: {{ cdp_url }}</div></div>
-      <button class="secondary" id="launch-btn">Launch Chrome</button>
+      <div style="display:flex; gap:.5rem;">
+        <button class="secondary" id="launch-btn">Launch Chrome</button>
+        <button class="danger" id="abort-btn" disabled
+                title="Stop the running capture; everything captured so far is saved as a partial transcript">
+          Abort capture</button>
+      </div>
     </div>
     <div class="hint" id="chrome-note" style="font-size:.85rem; margin-top:.5rem;"></div>
   </div>
 
   <div class="card">
-    <label>Slack conversation link
-      <span class="hint">— paste from the browser address bar, e.g. https://app.slack.com/client/T…/C… (leave empty to capture whatever is on screen)</span></label>
-    <input type="text" id="link" placeholder="https://app.slack.com/client/T012JDXNQ1W/D…">
-
-    <label>Last N days <span class="hint">— how far back to capture (empty = full history)</span></label>
-    <input type="number" id="days" min="1" step="1" placeholder="15">
-
-    <label>Target directory <span class="hint">— where transcript files are written</span></label>
-    <div class="dirrow">
-      <input type="text" id="outdir" placeholder="~/SlackClips" value="~/SlackClips">
-      <button class="secondary" id="browse-btn" type="button" hidden>Browse…</button>
+    <div class="grid">
+      <div class="span-all">
+        <label>Slack conversation link
+          <span class="hint">— paste from the address bar; empty = whatever is on screen</span></label>
+        <input type="text" id="link" placeholder="https://app.slack.com/client/T012JDXNQ1W/D…">
+      </div>
+      <div>
+        <label>Last N days <span class="hint">— empty = all</span></label>
+        <input type="number" id="days" min="1" step="1" placeholder="15">
+      </div>
+      <div>
+        <label>Target directory</label>
+        <div class="dirrow">
+          <input type="text" id="outdir" placeholder="~/SlackClips" value="~/SlackClips">
+          <button class="secondary" id="browse-btn" type="button" hidden>Browse…</button>
+        </div>
+        <div class="chip" id="dir-chip" hidden>
+          <span>📁 <b id="dir-name"></b> (picked in browser)</span>
+          <button type="button" id="dir-clear" title="Use the typed path instead">✕</button>
+        </div>
+      </div>
+      <div class="check">
+        <input type="checkbox" id="threads" checked>
+        <label for="threads" style="margin:0; font-weight:400">Include thread replies</label>
+      </div>
     </div>
-    <div class="chip" id="dir-chip" hidden>
-      <span>📁 Saving to <b id="dir-name"></b> (picked in browser)</span>
-      <button type="button" id="dir-clear" title="Use the typed path instead">✕</button>
+    <div class="formfoot">
+      <button class="primary" id="start-btn">Add to queue</button>
     </div>
-
-    <div class="check"><input type="checkbox" id="threads" checked>
-      <label for="threads" style="margin:0; font-weight:400">Include thread replies</label></div>
-
-    <button class="primary" id="start-btn">Start capture</button>
+    <div class="err" id="form-error" style="font-size:.85rem; margin-top:.5rem;"></div>
   </div>
 
-  <div class="card" id="progress">
-    <div id="p-running">
+  <div class="card">
+    <h2>Jobs <span class="hint" style="font-weight:400">— up to 5 queued or running; one executes at a time</span></h2>
+    <table id="jobs-table" hidden>
+      <thead><tr>
+        <th>#</th><th>Conversation</th><th>Days</th><th>Target</th><th>Threads</th>
+        <th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+    <div class="empty" id="jobs-empty">No jobs yet — fill the form above and add one to the queue.</div>
+  </div>
+
+  <div class="card" id="progress" hidden>
+    <h2>Current job</h2>
+    <div id="p-running" hidden>
       <span class="spinner"></span><span id="p-state">starting…</span>
       <div class="bigcount"><span id="p-count">0</span> <span class="hint" style="font-size:.9rem">messages captured</span></div>
       <div class="hint" id="p-detail"></div>
     </div>
-    <div id="p-done" style="display:none">
-      <div class="ok">✓ Capture complete</div>
+    <div id="p-done" hidden>
+      <div class="ok" id="d-head">✓ Capture complete</div>
       <div><span class="bigcount" id="d-count"></span> messages<span id="d-threads"></span></div>
       <div class="files" id="d-files"></div>
     </div>
-    <div id="p-error" style="display:none">
-      <div class="err" id="e-msg"></div>
-    </div>
+    <div id="p-error" hidden><div class="err" id="e-msg"></div></div>
   </div>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let polling = null;
-let dirHandle = null;   // File System Access API directory handle, if picked
-
-// the API needs a secure context (localhost qualifies) and Chrome/Edge;
-// Safari/Firefox fall back to the typed-path field
-if (window.showDirectoryPicker) $("browse-btn").hidden = false;
-
-$("browse-btn").onclick = async () => {
-  try {
-    dirHandle = await window.showDirectoryPicker({mode: "readwrite"});
-    $("dir-name").textContent = dirHandle.name;
-    $("dir-chip").hidden = false;
-    $("outdir").disabled = true;
-  } catch (e) { /* user cancelled the picker */ }
-};
-
-$("dir-clear").onclick = () => {
-  dirHandle = null;
-  $("dir-chip").hidden = true;
-  $("outdir").disabled = false;
-};
-
-async function saveToPickedDir(jobId) {
-  const body = await api("/api/jobs/" + jobId + "/files");
-  for (const f of body.files) {
-    const fh = await dirHandle.getFileHandle(f.name, {create: true});
-    const w = await fh.createWritable();
-    await w.write(f.content);
-    await w.close();
-  }
-  return body.files.map(f => dirHandle.name + "/" + f.name);
-}
+let dirHandle = null;              // current picked folder (File System Access API)
+const jobHandles = {};             // job id -> handle it should be saved through
+const savedJobs = new Set();       // jobs already written browser-side
+let shownJob = null;               // job featured in the "Current job" card
 
 async function api(path, opts) {
   const resp = await fetch(path, opts);
@@ -149,6 +172,7 @@ async function api(path, opts) {
   return body;
 }
 
+// ---- chrome controls --------------------------------------------------------
 async function refreshChrome() {
   try {
     const s = await api("/api/status");
@@ -170,13 +194,43 @@ $("launch-btn").onclick = async () => {
   refreshChrome();
 };
 
+$("abort-btn").onclick = async () => {
+  $("abort-btn").disabled = true;
+  try { await api("/api/abort", {method:"POST"}); }
+  catch (e) { $("chrome-note").textContent = e.message; }
+};
+
+// ---- folder picker ----------------------------------------------------------
+if (window.showDirectoryPicker) $("browse-btn").hidden = false;
+
+$("browse-btn").onclick = async () => {
+  try {
+    dirHandle = await window.showDirectoryPicker({mode: "readwrite"});
+    $("dir-name").textContent = dirHandle.name;
+    $("dir-chip").hidden = false;
+    $("outdir").disabled = true;
+  } catch (e) { /* user cancelled the picker */ }
+};
+$("dir-clear").onclick = () => {
+  dirHandle = null;
+  $("dir-chip").hidden = true;
+  $("outdir").disabled = false;
+};
+
+async function saveToPickedDir(jobId, handle) {
+  const body = await api("/api/jobs/" + jobId + "/files");
+  for (const f of body.files) {
+    const fh = await handle.getFileHandle(f.name, {create: true});
+    const w = await fh.createWritable();
+    await w.write(f.content);
+    await w.close();
+  }
+  return body.files.map(f => handle.name + "/" + f.name);
+}
+
+// ---- enqueue ----------------------------------------------------------------
 $("start-btn").onclick = async () => {
-  $("start-btn").disabled = true;
-  $("progress").style.display = "block";
-  $("p-running").style.display = "block";
-  $("p-done").style.display = "none";
-  $("p-error").style.display = "none";
-  $("p-count").textContent = "0";
+  $("form-error").textContent = "";
   try {
     const r = await api("/api/capture", {method:"POST",
       headers:{"Content-Type":"application/json"},
@@ -187,49 +241,103 @@ $("start-btn").onclick = async () => {
         client_save: !!dirHandle,
         threads: $("threads").checked,
       })});
-    poll(r.job_id);
-  } catch (e) { showError(e.message); }
+    if (dirHandle) jobHandles[r.job_id] = dirHandle;
+    shownJob = r.job_id;
+  } catch (e) { $("form-error").textContent = e.message; }
+  refreshJobs();
 };
 
-function poll(jobId) {
-  clearInterval(polling);
-  polling = setInterval(async () => {
-    try {
-      const j = await api("/api/jobs/" + jobId);
-      $("p-state").textContent = j.state.replaceAll("_", " ");
-      $("p-count").textContent = j.messages;
-      $("p-detail").textContent = j.detail || "";
-      if (j.state === "done") {
-        clearInterval(polling);
-        let files = j.files;
-        if (dirHandle) {
-          $("p-state").textContent = "saving into " + dirHandle.name + "…";
-          files = await saveToPickedDir(jobId);
-        }
-        $("p-running").style.display = "none";
-        $("p-done").style.display = "block";
-        $("d-count").textContent = j.messages;
-        $("d-threads").textContent = j.thread_replies ? " + " + j.thread_replies + " thread replies" : "";
-        $("d-files").innerHTML = files.map(f => f.replace(/&/g,"&amp;").replace(/</g,"&lt;")).join("<br>");
-        $("start-btn").disabled = false;
-      } else if (j.state === "error") {
-        clearInterval(polling);
-        showError(j.error);
-      }
-    } catch (e) { clearInterval(polling); showError(e.message); }
-  }, 800);
+// ---- queue table + progress ---------------------------------------------------
+const RUNNING = ["connecting", "navigating", "waiting_for_messages", "capturing", "writing"];
+const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+function statusCell(j) {
+  if (j.state === "queued") return '<span class="st queued">queued</span>';
+  if (RUNNING.includes(j.state))
+    return '<span class="st running">' + esc(j.state.replaceAll("_"," ")) +
+           (j.state === "capturing" ? " · " + j.messages + " msgs" : "") + "</span>";
+  if (j.state === "done" && j.aborted)
+    return '<span class="st aborted">aborted · ' + j.messages + ' msgs saved</span>';
+  if (j.state === "done") return '<span class="st done">✓ ' + j.messages + " msgs</span>";
+  if (j.state === "error") return '<span class="st error" title="' + esc(j.error||"") + '">✗ error</span>';
+  return '<span class="st ' + j.state + '">' + esc(j.state) + "</span>";
 }
 
-function showError(msg) {
-  $("p-running").style.display = "none";
-  $("p-done").style.display = "none";
-  $("p-error").style.display = "block";
-  $("e-msg").textContent = msg;
-  $("start-btn").disabled = false;
+async function cancelJob(id) {
+  try { await api("/api/jobs/" + id + "/cancel", {method:"POST"}); }
+  catch (e) { $("form-error").textContent = e.message; }
+  refreshJobs();
+}
+
+async function refreshJobs() {
+  let jobs;
+  try { jobs = (await api("/api/jobs")).jobs; } catch (e) { return; }
+
+  const anyRunning = jobs.some(j => RUNNING.includes(j.state));
+  $("abort-btn").disabled = !anyRunning;
+
+  const rows = jobs.slice(-5);
+  $("jobs-table").hidden = rows.length === 0;
+  $("jobs-empty").hidden = rows.length !== 0;
+  $("jobs-body").innerHTML = rows.map((j, i) => {
+    const r = j.request || {};
+    const cancellable = j.state === "queued";
+    return "<tr>" +
+      "<td>" + (jobs.indexOf(j) + 1) + "</td>" +
+      '<td class="trunc" title="' + esc(r.link||"") + '">' + esc(r.link||"") + "</td>" +
+      "<td>" + esc(r.days ?? "") + "</td>" +
+      '<td class="trunc" title="' + esc(r.target||"") + '">' + esc(r.target||"") + "</td>" +
+      "<td>" + (r.threads ? "yes" : "no") + "</td>" +
+      "<td>" + statusCell(j) + "</td>" +
+      '<td><button class="cancel-btn" data-id="' + j.id + '"' + (cancellable ? "" : " disabled") +
+        ' title="' + (cancellable ? "Remove from queue" : "Only queued jobs can be cancelled") +
+        '">Cancel</button></td>' +
+      "</tr>";
+  }).join("");
+  for (const btn of document.querySelectorAll(".cancel-btn"))
+    btn.onclick = () => cancelJob(btn.dataset.id);
+
+  // feature the running job, else the one just enqueued / most recent finished
+  const featured = jobs.find(j => RUNNING.includes(j.state))
+    || jobs.find(j => j.id === shownJob)
+    || jobs.filter(j => j.state === "done" || j.state === "error").at(-1);
+  if (featured) { shownJob = featured.id; await renderProgress(featured); }
+}
+
+async function renderProgress(j) {
+  $("progress").hidden = false;
+  const running = RUNNING.includes(j.state);
+  $("p-running").hidden = !running;
+  $("p-done").hidden = j.state !== "done";
+  $("p-error").hidden = j.state !== "error";
+  if (running) {
+    $("p-state").textContent = j.state.replaceAll("_", " ");
+    $("p-count").textContent = j.messages;
+    $("p-detail").textContent = j.detail || "";
+  } else if (j.state === "done") {
+    let files = j.files;
+    if (jobHandles[j.id] && !savedJobs.has(j.id)) {
+      savedJobs.add(j.id);
+      try { files = await saveToPickedDir(j.id, jobHandles[j.id]); }
+      catch (e) { $("form-error").textContent = "saving to the picked folder failed: " + e.message; }
+    } else if (jobHandles[j.id]) {
+      files = j.files.map(p => jobHandles[j.id].name + "/" + p.split("/").pop());
+    }
+    $("d-head").className = j.aborted ? "warn" : "ok";
+    $("d-head").textContent = j.aborted
+      ? "⚠ Aborted — partial transcript saved" : "✓ Capture complete";
+    $("d-count").textContent = j.messages;
+    $("d-threads").textContent = j.thread_replies ? " + " + j.thread_replies + " thread replies" : "";
+    $("d-files").innerHTML = files.map(esc).join("<br>");
+  } else if (j.state === "error") {
+    $("e-msg").textContent = j.error;
+  }
 }
 
 refreshChrome();
+refreshJobs();
 setInterval(refreshChrome, 5000);
+setInterval(refreshJobs, 1000);
 </script>
 </body>
 </html>
