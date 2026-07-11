@@ -102,9 +102,13 @@ def test_e2e_client_save_writes_to_temp_dir(cdp_chrome):
     client = app.test_client()
 
     resp = client.post("/api/capture", json={
-        "link": FIXTURE.as_uri(), "client_save": True, "threads": False})
+        "link": FIXTURE.as_uri(), "client_save": True, "threads": False,
+        "folder_name": "MyClips"})
     assert resp.status_code == 200, resp.get_json()
     job_id = resp.get_json()["job_id"]
+
+    # the queue table shows the picked folder's name, not a generic label
+    assert client.get(f"/api/jobs/{job_id}").get_json()["request"]["target"] == "MyClips 📁"
 
     # not finished yet -> files endpoint refuses
     assert client.get(f"/api/jobs/{job_id}/files").status_code == 409

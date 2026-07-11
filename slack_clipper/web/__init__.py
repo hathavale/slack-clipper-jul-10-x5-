@@ -86,7 +86,8 @@ def create_app(cdp_url: str | None = None, profile_dir: str | None = None,
         request_summary = {
             "link": link or "conversation on screen",
             "days": days_raw if days_raw not in (None, "") else "all",
-            "target": "browser folder" if client_save else out_dir,
+            "target": ((data.get("folder_name") or "browser folder") + " 📁"
+                       if client_save else out_dir),
             "threads": bool(data.get("threads", True)),
             "client_save": client_save,
         }

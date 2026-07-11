@@ -203,11 +203,15 @@ $("abort-btn").onclick = async () => {
 // ---- folder picker ----------------------------------------------------------
 if (window.showDirectoryPicker) $("browse-btn").hidden = false;
 
+let typedOutdir = null;   // remembers the typed path while a picked folder is active
+
 $("browse-btn").onclick = async () => {
   try {
     dirHandle = await window.showDirectoryPicker({mode: "readwrite"});
     $("dir-name").textContent = dirHandle.name;
     $("dir-chip").hidden = false;
+    if (typedOutdir === null) typedOutdir = $("outdir").value;
+    $("outdir").value = dirHandle.name;
     $("outdir").disabled = true;
   } catch (e) { /* user cancelled the picker */ }
 };
@@ -215,6 +219,7 @@ $("dir-clear").onclick = () => {
   dirHandle = null;
   $("dir-chip").hidden = true;
   $("outdir").disabled = false;
+  if (typedOutdir !== null) { $("outdir").value = typedOutdir; typedOutdir = null; }
 };
 
 async function saveToPickedDir(jobId, handle) {
@@ -237,8 +242,9 @@ $("start-btn").onclick = async () => {
       body: JSON.stringify({
         link: $("link").value.trim(),
         last_days: $("days").value.trim(),
-        out_dir: $("outdir").value.trim(),
+        out_dir: dirHandle ? (typedOutdir || "") : $("outdir").value.trim(),
         client_save: !!dirHandle,
+        folder_name: dirHandle ? dirHandle.name : null,
         threads: $("threads").checked,
       })});
     if (dirHandle) jobHandles[r.job_id] = dirHandle;
