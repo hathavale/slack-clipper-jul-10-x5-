@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slack Clipper</title>
+<style>
+  :root { --bg:#f7f6f3; --card:#fff; --ink:#1d1c1a; --muted:#6b6963; --line:#e4e2dc;
+          --accent:#4a154b; --ok:#1a7f37; --err:#b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#191919; --card:#232220; --ink:#ece9e2; --muted:#a09d95; --line:#3a3835;
+            --accent:#b794b8; --ok:#4ac26b; --err:#ff8577; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width:620px; margin:3rem auto; padding:0 1rem; }
+  h1 { font-size:1.5rem; margin:0 0 .25rem; }
+  .sub { color:var(--muted); margin:0 0 1.5rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:1.25rem 1.5rem; margin-bottom:1rem; }
+  label { display:block; font-weight:600; font-size:.85rem; margin:1rem 0 .3rem; }
+  label:first-of-type { margin-top:0; }
+  .hint { font-weight:400; color:var(--muted); }
+  input[type=text], input[type=number] { width:100%; padding:.55rem .7rem; font:inherit;
+    border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); }
+  .check { display:flex; align-items:center; gap:.5rem; margin-top:1rem; font-size:.9rem; }
+  button { font:inherit; font-weight:600; border:0; border-radius:7px; cursor:pointer;
+           padding:.6rem 1.1rem; }
+  button:disabled { opacity:.5; cursor:default; }
+  .primary { background:var(--accent); color:#fff; width:100%; margin-top:1.25rem; }
+  .secondary { background:transparent; color:var(--accent); border:1px solid var(--accent);
+               padding:.35rem .8rem; font-size:.85rem; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+  .dot { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; margin-right:.45rem; }
+  .dot.on { background:var(--ok); } .dot.off { background:var(--err); }
+  #progress { display:none; }
+  .spinner { display:inline-block; width:1rem; height:1rem; margin-right:.5rem;
+             border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%;
+             animation:spin .8s linear infinite; vertical-align:-.2rem; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .bigcount { font-size:1.6rem; font-weight:700; }
+  .files { font-family:ui-monospace, monospace; font-size:.8rem; word-break:break-all;
+           color:var(--muted); margin-top:.5rem; }
+  .ok { color:var(--ok); font-weight:600; } .err { color:var(--err); white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Slack Clipper</h1>
+  <p class="sub">Capture a coherent transcript of a Slack conversation from your own logged-in Chrome.</p>
+
+  <div class="card">
+    <div class="row">
+      <div><span id="chrome-dot" class="dot off"></span><span id="chrome-label">checking Chrome…</span>
+        <div class="hint" style="font-size:.8rem">debug endpoint: {{ cdp_url }}</div></div>
+      <button class="secondary" id="launch-btn">Launch Chrome</button>
+    </div>
+    <div class="hint" id="chrome-note" style="font-size:.85rem; margin-top:.5rem;"></div>
+  </div>
+
+  <div class="card">
+    <label>Slack conversation link
+      <span class="hint">— paste from the browser address bar, e.g. https://app.slack.com/client/T…/C… (leave empty to capture whatever is on screen)</span></label>
+    <input type="text" id="link" placeholder="https://app.slack.com/client/T012JDXNQ1W/D…">
+
+    <label>Last N days <span class="hint">— how far back to capture (empty = full history)</span></label>
+    <input type="number" id="days" min="1" step="1" placeholder="15">
+
+    <label>Target directory <span class="hint">— where transcript files are written</span></label>
+    <input type="text" id="outdir" placeholder="~/SlackClips" value="~/SlackClips">
+
+    <div class="check"><input type="checkbox" id="threads" checked>
+      <label for="threads" style="margin:0; font-weight:400">Include thread replies</label></div>
+
+    <button class="primary" id="start-btn">Start capture</button>
+  </div>
+
+  <div class="card" id="progress">
+    <div id="p-running">
+      <span class="spinner"></span><span id="p-state">starting…</span>
+      <div class="bigcount"><span id="p-count">0</span> <span class="hint" style="font-size:.9rem">messages captured</span></div>
+      <div class="hint" id="p-detail"></div>
+    </div>
+    <div id="p-done" style="display:none">
+      <div class="ok">✓ Capture complete</div>
+      <div><span class="bigcount" id="d-count"></span> messages<span id="d-threads"></span></div>
+      <div class="files" id="d-files"></div>
+    </div>
+    <div id="p-error" style="display:none">
+      <div class="err" id="e-msg"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let polling = null;
+
+async function api(path, opts) {
+  const resp = await fetch(path, opts);
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(body.error || (path + " failed: " + resp.status));
+  return body;
+}
+
+async function refreshChrome() {
+  try {
+    const s = await api("/api/status");
+    $("chrome-dot").className = "dot " + (s.chrome_running ? "on" : "off");
+    $("chrome-label").textContent = s.chrome_running ? "Chrome connected" : "Chrome not running";
+    $("launch-btn").disabled = s.chrome_running;
+  } catch (e) { $("chrome-label").textContent = "UI server unreachable"; }
+}
+
+$("launch-btn").onclick = async () => {
+  $("launch-btn").disabled = true;
+  $("chrome-note").textContent = "launching…";
+  try {
+    const r = await api("/api/launch-chrome", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({link: $("link").value.trim() || null})});
+    $("chrome-note").textContent = r.note || "";
+  } catch (e) { $("chrome-note").textContent = e.message; $("launch-btn").disabled = false; }
+  refreshChrome();
+};
+
+$("start-btn").onclick = async () => {
+  $("start-btn").disabled = true;
+  $("progress").style.display = "block";
+  $("p-running").style.display = "block";
+  $("p-done").style.display = "none";
+  $("p-error").style.display = "none";
+  $("p-count").textContent = "0";
+  try {
+    const r = await api("/api/capture", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        link: $("link").value.trim(),
+        last_days: $("days").value.trim(),
+        out_dir: $("outdir").value.trim(),
+        threads: $("threads").checked,
+      })});
+    poll(r.job_id);
+  } catch (e) { showError(e.message); }
+};
+
+function poll(jobId) {
+  clearInterval(polling);
+  polling = setInterval(async () => {
+    try {
+      const j = await api("/api/jobs/" + jobId);
+      $("p-state").textContent = j.state.replaceAll("_", " ");
+      $("p-count").textContent = j.messages;
+      $("p-detail").textContent = j.detail || "";
+      if (j.state === "done") {
+        clearInterval(polling);
+        $("p-running").style.display = "none";
+        $("p-done").style.display = "block";
+        $("d-count").textContent = j.messages;
+        $("d-threads").textContent = j.thread_replies ? " + " + j.thread_replies + " thread replies" : "";
+        $("d-files").innerHTML = j.files.map(f => f.replace(/&/g,"&amp;").replace(/</g,"&lt;")).join("<br>");
+        $("start-btn").disabled = false;
+      } else if (j.state === "error") {
+        clearInterval(polling);
+        showError(j.error);
+      }
+    } catch (e) { clearInterval(polling); showError(e.message); }
+  }, 800);
+}
+
+function showError(msg) {
+  $("p-running").style.display = "none";
+  $("p-done").style.display = "none";
+  $("p-error").style.display = "block";
+  $("e-msg").textContent = msg;
+  $("start-btn").disabled = false;
+}
+
+refreshChrome();
+setInterval(refreshChrome, 5000);
+</script>
+</body>
+</html>

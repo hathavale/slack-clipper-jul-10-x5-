@@ -49,6 +49,37 @@ google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.slack-clipper
 
 Open your Slack workspace (`https://app.slack.com/client/...`) in that window.
 
+## Web UI
+
+The easiest way to use the app — a local Flask UI that manages the debug Chrome
+for you:
+
+```bash
+python -m slack_clipper.web
+# then open http://127.0.0.1:5001
+```
+
+From the page you can:
+
+- **Launch Chrome** — starts the dedicated debug Chrome (own profile, remote
+  debugging enabled) if it isn't already running; sign in to Slack there the
+  first time.
+- **Slack conversation link** — paste the URL from the address bar
+  (`https://app.slack.com/client/T…/C…` or a DM link); the app navigates the
+  debug Chrome straight to it. Leave empty to capture whatever conversation is
+  already on screen.
+- **Last N days** — how far back to capture (empty = full history).
+- **Target directory** — where the transcript `.json` + `.md` land
+  (default `~/SlackClips`).
+- A live progress indicator: connecting → navigating → capturing (with a
+  running message count) → done, showing the written file paths — or the error
+  if something went wrong.
+
+Flags: `--port` (default 5001 — 5000 collides with macOS AirPlay), `--host`,
+`--cdp-url`. Environment overrides: `SLACK_CLIPPER_CHROME` (path to the Chrome
+binary), `SLACK_CLIPPER_CHROME_PROFILE`, `SLACK_CLIPPER_CDP_URL`,
+`SLACK_CLIPPER_SELECTORS`.
+
 ## Usage
 
 ```bash
