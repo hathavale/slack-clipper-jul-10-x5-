@@ -133,6 +133,19 @@ pip install pytest
 python -m pytest tests/
 ```
 
+## Troubleshooting
+
+- **"Chrome connected" but no window is visible** — on macOS, closing the last
+  Chrome window does not quit Chrome; the debug instance keeps running in the
+  background (and the status line shows its real version, e.g.
+  "Chrome connected · Chrome/138…"). Captures will still work; to get a window
+  back, quit that Chrome fully (⌘Q / Activity Monitor) and press Launch Chrome
+  again. The status check only trusts a genuine DevTools endpoint — a proxy or
+  another app answering on the port is not counted.
+- **Port 9222 is taken by something else** — run the UI with
+  `--cdp-url http://localhost:9223` (any free port); Launch Chrome uses the
+  same port automatically.
+
 ## Caveats
 
 - Selectors track today's Slack web DOM; when Slack changes markup, fix it with

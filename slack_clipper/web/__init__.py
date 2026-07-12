@@ -37,7 +37,9 @@ def create_app(cdp_url: str | None = None, profile_dir: str | None = None,
 
     @app.get("/api/status")
     def status():
-        return jsonify(chrome_running=chrome.is_running(cdp), cdp_url=cdp)
+        info = chrome.devtools_info(cdp)
+        return jsonify(chrome_running=info is not None, cdp_url=cdp,
+                       browser=(info or {}).get("Browser"))
 
     @app.post("/api/launch-chrome")
     def launch_chrome():

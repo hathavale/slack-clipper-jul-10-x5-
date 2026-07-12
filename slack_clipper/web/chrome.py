@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -33,12 +34,27 @@ def find_chrome() -> str | None:
     return None
 
 
-def is_running(cdp_url: str, timeout: float = 2.0) -> bool:
+def devtools_info(cdp_url: str, timeout: float = 2.0) -> dict | None:
+    """Return Chrome's /json/version payload, or None if no real DevTools
+    endpoint answers there.
+
+    A bare "did something respond with 200" check produces false positives:
+    a system HTTP proxy can answer for localhost URLs, and an unrelated app
+    can squat on the port. So the probe bypasses proxies entirely and only
+    counts a response that parses as DevTools JSON (webSocketDebuggerUrl)."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(cdp_url.rstrip("/") + "/json/version", timeout=timeout):
-            return True
+        with opener.open(cdp_url.rstrip("/") + "/json/version", timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
     except Exception:
-        return False
+        return None
+    if not isinstance(data, dict) or "webSocketDebuggerUrl" not in data:
+        return None
+    return data
+
+
+def is_running(cdp_url: str, timeout: float = 2.0) -> bool:
+    return devtools_info(cdp_url, timeout) is not None
 
 
 def launch(cdp_url: str, profile_dir: str, url: str | None = None,

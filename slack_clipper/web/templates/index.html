@@ -177,7 +177,9 @@ async function refreshChrome() {
   try {
     const s = await api("/api/status");
     $("chrome-dot").className = "dot " + (s.chrome_running ? "on" : "off");
-    $("chrome-label").textContent = s.chrome_running ? "Chrome connected" : "Chrome not running";
+    $("chrome-label").textContent = s.chrome_running
+      ? "Chrome connected" + (s.browser ? " · " + s.browser : "")
+      : "Chrome not running";
     $("launch-btn").disabled = s.chrome_running;
   } catch (e) { $("chrome-label").textContent = "UI server unreachable"; }
 }

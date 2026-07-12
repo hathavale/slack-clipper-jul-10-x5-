@@ -138,6 +138,50 @@ def test_e2e_last_n_days_limits_capture(cdp_chrome, tmp_path):
     assert job["messages"] == 50
 
 
+def test_is_running_rejects_non_devtools_responders():
+    """A 200 from something that isn't Chrome (system proxy answering for
+    localhost, another app on the port) must not read as 'Chrome connected'."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from slack_clipper.web import chrome as chrome_mod
+
+    class NotChrome(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b"<html>totally not a devtools endpoint</html>"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), NotChrome)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_port}"
+        assert chrome_mod.is_running(url) is False
+        assert chrome_mod.devtools_info(url) is None
+        # and the UI status endpoint reflects it
+        app = create_app(cdp_url=url)
+        status = app.test_client().get("/api/status").get_json()
+        assert status["chrome_running"] is False
+    finally:
+        srv.shutdown()
+
+
+def test_is_running_accepts_real_devtools_endpoint(cdp_chrome):
+    from slack_clipper.web import chrome as chrome_mod
+
+    info = chrome_mod.devtools_info(cdp_chrome)
+    assert info is not None and "webSocketDebuggerUrl" in info
+    app = create_app(cdp_url=cdp_chrome)
+    status = app.test_client().get("/api/status").get_json()
+    assert status["chrome_running"] is True
+    assert status["browser"]  # e.g. "Chrome/126.0.6478.63" — shown in the UI
+
+
 def test_validation_errors():
     app = create_app(cdp_url="http://localhost:1")  # nothing listening
     client = app.test_client()
